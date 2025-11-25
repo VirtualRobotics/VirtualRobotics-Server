@@ -1,5 +1,4 @@
 import cv2
-import numpy as np
 from config import *
 
 def decide_command_from_image(img):
@@ -22,6 +21,11 @@ def decide_command_from_image(img):
 
     largest_contour = max(contours, key=cv2.contourArea)
     area = cv2.contourArea(largest_contour)
+
+
+    # if area > TOO_CLOSE_THRESHOLD:
+    #     print(f"[PY] Obiekt ZBYT BLISKO -> COFAM {area:.2f}")
+    #     return MOVE_BACK
 
     if area > STOP_THRESHOLD:
         print("[PY] Blisko czerwonego obiektu -> STOP")
