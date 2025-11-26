@@ -1,6 +1,5 @@
-import socket
 import struct
-from movement_controller import *
+from src.perception.movement_controller import *
 
 def receive_frame(connection, length):
     data = b""
@@ -39,17 +38,3 @@ def handle_client(connection, address, debug=False):
             except ConnectionError:
                 print("[PY] Klient się rozłączył")
                 break
-
-
-def main():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))
-        s.listen(1)
-        print(f"[PY] Serwer nasłuchuje na {HOST}:{PORT}")
-        while True:
-            connection, address = s.accept()
-            handle_client(connection, address, debug=True)
-
-
-if __name__ == "__main__":
-    main()
