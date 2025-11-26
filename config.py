@@ -2,8 +2,6 @@ import numpy as np
 
 HOST = "127.0.0.1"
 PORT = 5000
-IMAGE_PATH = r"C:/Users/oskar/AppData/LocalLow/DefaultCompany/VirtualRobotics\agent_frame.png"
-
 
 TURN_RIGHT_20 = "ROTATE 20\n"
 TURN_LEFT_20 = "ROTATE -20\n"
