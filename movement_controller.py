@@ -23,9 +23,9 @@ def decide_command_from_image(img):
     area = cv2.contourArea(largest_contour)
 
 
-    # if area > TOO_CLOSE_THRESHOLD:
-    #     print(f"[PY] Obiekt ZBYT BLISKO -> COFAM {area:.2f}")
-    #     return MOVE_BACK
+    if area > TOO_CLOSE_THRESHOLD:
+        print(f"[PY] Obiekt ZBYT BLISKO -> COFAM {area:.2f}")
+        return MOVE_BACK
 
     if area > STOP_THRESHOLD:
         print("[PY] Blisko czerwonego obiektu -> STOP")
