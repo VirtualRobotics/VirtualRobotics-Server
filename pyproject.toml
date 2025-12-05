@@ -1,0 +1,15 @@
+[project]
+name = "virtualrobotics-rl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "gymnasium>=1.2.2",
+    "numpy>=2.2.6",
+    "opencv-python>=4.11.0.86",
+    "pyyaml>=6.0.3",
+    "shimmy>=2.0.0",
+    "stable-baselines3>=2.7.1",
+    "tensorboard>=2.20.0",
+]
