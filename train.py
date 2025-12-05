@@ -2,7 +2,7 @@ import os
 import yaml
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
-from enviroment.unity_env import UnityLabyrinthEnv
+from env.unity_env import UnityLabyrinthEnv
 
 
 def load_config(path):
