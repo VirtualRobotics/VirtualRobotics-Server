@@ -1,5 +1,5 @@
 import cv2
-from config import *
+from src.config import *
 
 def decide_command_from_image(img):
     h, w, _ = img.shape
