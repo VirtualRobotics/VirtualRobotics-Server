@@ -1,5 +1,11 @@
 # VirtualRobotics (Autonomous Agent in Unity)
 
+## Setup & Usage
+1. Run the server: `uv run main.py`
+2. Run the [Unity client](https://github.com/VirtualRobotics/VirtualRobotics-Unity)
+
+---
+# About the project
 > Main idea: To create a simulation platform in the Unity engine for testing autonomous navigation and Computer Vision (CV) algorithms. The project involves building a "virtual robot" (agent) that makes movement decisions based on analysis of the virtual camera image, eliminating the need to build and test expensive physical hardware.
 
 ---
