@@ -1,4 +1,5 @@
 import struct
+import src.perception.movement_controller as mc
 from src.perception.movement_controller import *
 
 def receive_frame(connection, length):
@@ -12,6 +13,9 @@ def receive_frame(connection, length):
 
 def handle_client(connection, address, debug=False):
     print(f"[PY] Połączono z {address}")
+
+    mc.reset_state()
+
     with connection:
         while True:
             try:

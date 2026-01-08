@@ -1,4 +1,3 @@
 # Perception module documentation
 
-> In this module we will describe how our computer vision module is supposed to behave - what are it's desired inputs and outputs, what formats are allowed etc.
-
+> In this module we describe how the perception (computer vision) module works – what kind of input it receives from Unity, how the image is processed, and how a movement command is produced based on visual information.
