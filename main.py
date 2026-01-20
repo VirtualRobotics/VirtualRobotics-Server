@@ -1,6 +1,6 @@
 import socket
 from src.config import HOST, PORT
-from src.api.server import handle_client
+from src.server import handle_client
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.bind((HOST, PORT))

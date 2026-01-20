@@ -1,6 +1,6 @@
 import struct
-import src.perception.movement_controller as mc
-from src.perception.movement_controller import *
+import src.movement_controller as mc
+from src.movement_controller import *
 
 def receive_frame(connection, length):
     data = b""
