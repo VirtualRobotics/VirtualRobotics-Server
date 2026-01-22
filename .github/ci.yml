@@ -1,0 +1,42 @@
+name: Python CI (Pure uv)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Pobranie kodu
+      - uses: actions/checkout@v4
+
+      # 2. Instalacja uv
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      # 3. Setup Pythona
+      - name: Set up Python
+        run: uv python install
+
+      # 4. Synchronizacja zależności
+      - name: Install dependencies
+        run: uv sync --all-extras --dev --frozen
+
+      # 5. Formatowanie (Ruff)
+      - name: Check formatting
+        run: uv run ruff format --check .
+
+      # 6. Lintowanie (Ruff)
+      - name: Lint code
+        run: uv run ruff check .
+
+      # 7. Testy (Pytest)
+      - name: Run tests
+        run: uv run pytest
