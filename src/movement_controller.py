@@ -1,134 +1,227 @@
 import cv2
 import numpy as np
 from collections import deque
-from src.config import *
-
-diff_history = deque(maxlen=5)
-oscillation_counter = 0
-last_cmd_side = 0
-
-LAST_TURN = 0
-TURNING = False
+from dataclasses import dataclass
+from typing import Optional, Any
 
 
-def reset_state():
-    global LAST_TURN, TURNING, oscillation_counter, last_cmd_side
-    LAST_TURN = 0
-    TURNING = False
-    oscillation_counter = 0
-    last_cmd_side = 0
-    diff_history.clear()
+@dataclass
+class ObstacleAnalysis:
+    left_ratio: float
+    right_ratio: float
+    center_blocked: bool
+    diff: float
+    blue_ratio: float
+    is_dead_end: bool
 
 
-def _mask_color(hsv, lower, upper):
-    mask = cv2.inRange(hsv, lower, upper)
-    kernel = np.ones((3, 3), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
-    mask = cv2.dilate(mask, kernel, iterations=1)
-    return mask
+class MovementController:
+    def __init__(self, config: Any):
+        self.cfg = config
 
+        # Internal state
+        self._diff_history = deque(maxlen=5)
+        self._oscillation_counter = 0
+        self._last_cmd_side = 0
+        self._last_turn_direction = 0  # 0: None, -1: Left, 1: Right
+        self._is_turning_maneuver = False
 
-def decide_command_from_image(img):
-    global LAST_TURN, TURNING, oscillation_counter, last_cmd_side
+        # Pre-allocate morphological kernel for optimization
+        self._morph_kernel = np.ones((3, 3), np.uint8)
 
-    h, w, _ = img.shape
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    def reset_state(self):
+        self._last_turn_direction = 0
+        self._is_turning_maneuver = False
+        self._oscillation_counter = 0
+        self._last_cmd_side = 0
+        self._diff_history.clear()
 
-    # 1. LOGIKA CELU (CZERWONY)
-    red1 = _mask_color(hsv, LOWER_RED1, UPPER_RED1)
-    red2 = _mask_color(hsv, LOWER_RED2, UPPER_RED2)
-    red_mask = cv2.bitwise_or(red1, red2)
-    contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    def decide_command(self, img: np.ndarray) -> str:
+        h, w, _ = img.shape
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-    if contours:
+        # 1. Target Logic (Red)
+        target_cmd = self._process_target_logic(hsv, w)
+        if target_cmd:
+            return target_cmd
+
+        # 2. Obstacle Logic (Blue)
+        analysis = self._analyze_obstacles(hsv, h, w)
+
+        # 3. Update State
+        self._update_oscillation_state(analysis.diff)
+        self._update_turn_direction(analysis)
+
+        # 4. Resolve Movement
+        return self._resolve_movement_logic(analysis)
+
+    def _process_target_logic(self, hsv: np.ndarray, w: int) -> Optional[str]:
+        mask1 = self._create_mask(
+            hsv, self.cfg.Colors.TARGET_RED_LOWER_1, self.cfg.Colors.TARGET_RED_UPPER_1
+        )
+        mask2 = self._create_mask(
+            hsv, self.cfg.Colors.TARGET_RED_LOWER_2, self.cfg.Colors.TARGET_RED_UPPER_2
+        )
+        red_mask = cv2.bitwise_or(mask1, mask2)
+
+        contours, _ = cv2.findContours(
+            red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours:
+            return None
+
         largest = max(contours, key=cv2.contourArea)
-        if cv2.contourArea(largest) > 50:
-            M = cv2.moments(largest)
-            if M["m00"] != 0:
-                cx = int(M["m10"] / M["m00"])
-                offset_x = (cx / w) - 0.5
-                TURNING = False
-                oscillation_counter = 0
 
-                if offset_x > 0.1:
-                    LAST_TURN = +1
-                    return TURN_RIGHT_10
-                elif offset_x < -0.1:
-                    LAST_TURN = -1
-                    return TURN_LEFT_10
-                else:
-                    return MOVE_FORWARD
+        if cv2.contourArea(largest) <= self.cfg.Nav.MIN_TARGET_AREA:
+            return None
 
-    # 2. LOGIKA UNIKANIA ŚCIAN (NIEBIESKI)
-    blue_mask = _mask_color(hsv, LOWER_BLUE, UPPER_BLUE)
+        M = cv2.moments(largest)
+        if M["m00"] == 0:
+            return None
 
-    y0 = int(h * 0.50)
-    roi = blue_mask[y0:h, :]
-    blue_ratio = cv2.countNonZero(roi) / float(roi.size)
+        cx = int(M["m10"] / M["m00"])
+        offset_x = (cx / w) - 0.5
 
-    left = roi[:, :w // 2]
-    right = roi[:, w // 2:]
+        self._is_turning_maneuver = False
+        self._oscillation_counter = 0
 
-    left_ratio = cv2.countNonZero(left) / float(left.size)
-    right_ratio = cv2.countNonZero(right) / float(right.size)
+        tol = self.cfg.Nav.TARGET_ALIGN_TOLERANCE
 
-    raw_diff = right_ratio - left_ratio
-    diff_history.append(raw_diff)
-    diff = sum(diff_history) / len(diff_history)
+        if offset_x > tol:
+            self._last_turn_direction = 1
+            return self.cfg.Cmd.TURN_RIGHT_5
+        elif offset_x < -tol:
+            self._last_turn_direction = -1
+            return self.cfg.Cmd.TURN_LEFT_5
 
-    center_roi = roi[:, int(w * 0.4): int(w * 0.6)]
-    center_blocked = cv2.countNonZero(center_roi) / float(center_roi.size) > 0.5
+        return self.cfg.Cmd.MOVE_FORWARD
 
-    # Oscylacje
-    current_side = -1 if diff > 0.1 else (1 if diff < -0.1 else 0)
-    if current_side != 0 and last_cmd_side != 0 and current_side != last_cmd_side:
-        oscillation_counter += 1
-    else:
-        oscillation_counter = max(0, oscillation_counter - 1)
-    last_cmd_side = current_side
+    def _analyze_obstacles(self, hsv: np.ndarray, h: int, w: int) -> ObstacleAnalysis:
+        blue_mask = self._create_mask(
+            hsv, self.cfg.Colors.WALL_BLUE_LOWER, self.cfg.Colors.WALL_BLUE_UPPER
+        )
 
-    is_dead_end = center_blocked and (left_ratio > 0.30 and right_ratio > 0.30)
+        # Analyze bottom 50% of the image
+        y0 = int(h * 0.50)
+        roi = blue_mask[y0:h, :]
 
-    # 3. KOREKTA KIERUNKU
-    if not is_dead_end:
-        better_turn = 0
-        if left_ratio > right_ratio + 0.05:
-            better_turn = 1
-        elif right_ratio > left_ratio + 0.05:
-            better_turn = -1
+        total_pixels = float(roi.size) or 1.0
+        blue_ratio = cv2.countNonZero(roi) / total_pixels
 
-        if better_turn != 0:
-            LAST_TURN = better_turn
+        mid_w = w // 2
+        left_roi = roi[:, :mid_w]
+        right_roi = roi[:, mid_w:]
 
-    if is_dead_end and LAST_TURN == 0:
-        LAST_TURN = 1
+        left_ratio = cv2.countNonZero(left_roi) / float(left_roi.size or 1)
+        right_ratio = cv2.countNonZero(right_roi) / float(right_roi.size or 1)
 
+        raw_diff = right_ratio - left_ratio
+        self._diff_history.append(raw_diff)
+        avg_diff = sum(self._diff_history) / len(self._diff_history)
 
-    # A. Jeśli środek jest wolny -> IDŹ DO PRZODU
-    if not center_blocked and abs(diff) < 0.3:
-        TURNING = False
-        return MOVE_FORWARD
+        # Smoothing differential to reduce jitter
+        center_start = int(w * self.cfg.Nav.ROI_CENTER_START)
+        center_end = int(w * self.cfg.Nav.ROI_CENTER_END)
+        center_roi = roi[:, center_start:center_end]
+        center_blocked = (
+            cv2.countNonZero(center_roi) / float(center_roi.size or 1)
+        ) > self.cfg.Nav.BLOCKAGE_THRESHOLD
 
-    # B. Wyjście z pułapki (Tylko jeśli środek zablokowany i boki też)
-    if is_dead_end:
-        TURNING = True
-        return TURN_LEFT_20 if LAST_TURN == -1 else TURN_RIGHT_20
+        side_threshold = self.cfg.Nav.DEAD_END_SIDE_RATIO
 
-    # C. Oscylacje (na otwartej przestrzeni)
-    if oscillation_counter > 4 and not center_blocked:
-        oscillation_counter = 0
-        TURNING = False
-        return MOVE_FORWARD
+        # Dead end condition: Center blocked AND significant walls on both sides
+        is_dead_end = center_blocked and (
+            left_ratio > side_threshold and right_ratio > side_threshold
+        )
 
-    # D. Centrowanie (tylko gdy nie ma blokady, ale jest asymetria)
-    if not center_blocked:
-        if blue_ratio > 0.05:
-            if diff > 0.25: return TURN_LEFT_10
-            if diff < -0.25: return TURN_RIGHT_10
+        return ObstacleAnalysis(
+            left_ratio=left_ratio,
+            right_ratio=right_ratio,
+            center_blocked=center_blocked,
+            diff=avg_diff,
+            blue_ratio=blue_ratio,
+            is_dead_end=is_dead_end,
+        )
 
-    # E. Standardowe unikanie (gdy blokada lub narożnik)
-    if center_blocked or TURNING or blue_ratio >= WALL_VERY_CLOSE_RATIO:
-        TURNING = True
-        return TURN_LEFT_20 if LAST_TURN == -1 else TURN_RIGHT_20
+    def _update_oscillation_state(self, diff: float):
+        current_side = -1 if diff > 0.1 else (1 if diff < -0.1 else 0)
 
-    return MOVE_FORWARD
+        if (
+            current_side != 0
+            and self._last_cmd_side != 0
+            and current_side != self._last_cmd_side
+        ):
+            self._oscillation_counter += 1
+        else:
+            self._oscillation_counter = max(0, self._oscillation_counter - 1)
+
+        self._last_cmd_side = current_side
+
+    def _update_turn_direction(self, analysis: ObstacleAnalysis):
+        if not analysis.is_dead_end:
+            deadzone = self.cfg.Nav.CENTERING_DEADZONE
+            if analysis.left_ratio > analysis.right_ratio + deadzone:
+                self._last_turn_direction = 1
+            elif analysis.right_ratio > analysis.left_ratio + deadzone:
+                self._last_turn_direction = -1
+
+        # If stuck in a dead end without history, force a default direction (Right)
+        if analysis.is_dead_end and self._last_turn_direction == 0:
+            self._last_turn_direction = 1
+
+    def _resolve_movement_logic(self, metrics: ObstacleAnalysis) -> str:
+        # A. Clear path
+        path_clear = not metrics.center_blocked
+        heading_aligned = abs(metrics.diff) < self.cfg.Nav.HEADING_ALIGNED_DIFF
+
+        if path_clear and heading_aligned:
+            self._is_turning_maneuver = False
+            return self.cfg.Cmd.MOVE_FORWARD
+
+        # B. Escape Dead End
+        if metrics.is_dead_end:
+            self._is_turning_maneuver = True
+            return (
+                self.cfg.Cmd.TURN_LEFT_10
+                if self._last_turn_direction == -1
+                else self.cfg.Cmd.TURN_RIGHT_10
+            )
+
+        # C. Oscillation Damping (ignore jitter in open space)
+        if (
+            self._oscillation_counter > self.cfg.Nav.OSCILLATION_LIMIT
+            and not metrics.center_blocked
+        ):
+            self._oscillation_counter = 0
+            self._is_turning_maneuver = False
+            return self.cfg.Cmd.MOVE_FORWARD
+
+        # D. Centering (Minor corrections in corridors)
+        if not metrics.center_blocked and metrics.blue_ratio > 0.05:
+            correction = self.cfg.Nav.CENTERING_CORRECTION
+            if metrics.diff > correction:
+                return self.cfg.Cmd.TURN_LEFT_5
+            if metrics.diff < -correction:
+                return self.cfg.Cmd.TURN_RIGHT_5
+
+        # E. Standard Avoidance (Corner or blocked path)
+        is_wall_too_close = metrics.blue_ratio >= self.cfg.Nav.WALL_VERY_CLOSE_RATIO
+
+        if metrics.center_blocked or self._is_turning_maneuver or is_wall_too_close:
+            self._is_turning_maneuver = True
+            return (
+                self.cfg.Cmd.TURN_LEFT_10
+                if self._last_turn_direction == -1
+                else self.cfg.Cmd.TURN_RIGHT_10
+            )
+
+        return self.cfg.Cmd.MOVE_FORWARD
+
+    def _create_mask(
+        self, hsv: np.ndarray, lower: np.ndarray, upper: np.ndarray
+    ) -> np.ndarray:
+        mask = cv2.inRange(hsv, lower, upper)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self._morph_kernel, iterations=2)
+        mask = cv2.dilate(mask, self._morph_kernel, iterations=1)
+        return mask
